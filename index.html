@@ -83,7 +83,6 @@ const $f = document.getElementById('f');
 const $cnt = document.getElementById('cnt');
 const selected = new Set();
 const notes = JSON.parse(localStorage.getItem('roxy_notes')||'{}');
-pullCloud();
 function saveNotes(){
   localStorage.setItem('roxy_notes', JSON.stringify(notes));
   queueCloudSave();
@@ -135,9 +134,13 @@ async function pullCloud(){
 }
 document.getElementById('syncBtn').onclick = ()=>{
   const box = document.getElementById('syncbox');
-  box.style.display = box.style.display === 'block' ? 'none' : 'block';
-  document.getElementById('syncToken').value = syncCfg.token || '';
-  document.getElementById('syncGist').value = syncCfg.gistId || '';
+  const open = box.style.display !== 'block';
+  box.style.display = open ? 'block' : 'none';
+  if(open){
+    document.getElementById('syncToken').value = syncCfg.token || '';
+    document.getElementById('syncGist').value = syncCfg.gistId || '';
+    box.scrollIntoView({behavior:'smooth', block:'center'});
+  }
 };
 document.getElementById('syncSave').onclick = async ()=>{
   syncCfg.token = document.getElementById('syncToken').value.trim();
@@ -146,6 +149,7 @@ document.getElementById('syncSave').onclick = async ()=>{
   document.getElementById('syncMsg').textContent = '正在同步…';
   await pushCloud();
 };
+pullCloud();
 document.getElementById('expNotes').onclick = ()=>{
   const blob = new Blob([JSON.stringify(notes, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
