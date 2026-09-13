@@ -276,9 +276,9 @@ function selectedProducts(){
 function sharePayload(){
   const rows = selectedProducts();
   const skus = rows.map(p=>p.sku).join(',');
-  const url = location.origin + location.pathname + '?skus=' + encodeURIComponent(skus);
+  const url = location.origin + location.pathname.replace(/index\.html$/,'') + '?skus=' + encodeURIComponent(skus);
   const lines = rows.map(p => `${p.name}\nSKU ${p.sku}${p.pack?'  '+p.pack:''}`).join('\n\n');
-  return {url, text: 'Roxy 产品清单\n\n' + lines, rows};
+  return {url, text: 'Roxy 产品清单\n\n' + lines + '\n\n查看产品图片：\n' + url, rows};
 }
 
 $list.addEventListener('input', e=>{
@@ -322,7 +322,7 @@ document.getElementById('share').onclick = async ()=>{
   ta.value = text;
   box.style.display = 'block';
   if(navigator.share){
-    try{ await navigator.share({title:'Roxy 产品', text}); return; }catch(e){}
+    try{ await navigator.share({title:'Roxy 产品', text, url}); return; }catch(e){}
   }
   try{
     await navigator.clipboard.writeText(text);
