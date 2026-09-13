@@ -32,6 +32,11 @@ header h1{margin:0 0 8px;font-size:16px;font-weight:700;}
 .bar .clear{background:#eee;color:#333;}
 .sharebox{max-width:420px;margin:12px auto;background:#fff;border-radius:12px;padding:12px;display:none;}
 .sharebox textarea{width:100%;min-height:120px;border:1px solid #ddd;border-radius:8px;padding:8px;font-size:14px;}
+.note{margin-top:8px;width:100%;border:1px dashed #c5c9a8;border-radius:8px;padding:8px;font-size:13px;resize:vertical;min-height:36px;background:#fafaf3;}
+body.guest header .search, body.guest .meta, body.guest .bar, body.guest .note, body.guest .pick, body.guest .sharebox{display:none !important;}
+body.guest .list{padding-bottom:24px;}
+body.guest header h1{margin:0;}
+
 </style>
 </head>
 <body>
@@ -64,6 +69,11 @@ const $meta = document.getElementById('meta');
 const $f = document.getElementById('f');
 const $cnt = document.getElementById('cnt');
 const selected = new Set();
+const notes = JSON.parse(localStorage.getItem('roxy_notes')||'{}');
+function saveNotes(){ localStorage.setItem('roxy_notes', JSON.stringify(notes)); }
+const isGuest = new URLSearchParams(location.search).has('skus');
+if(isGuest) document.body.classList.add('guest');
+
 
 function esc(s){return String(s||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function compact(s){return String(s||'').toLowerCase().replace(/[\s\-_./，,、()]+/g,'');}
@@ -110,6 +120,7 @@ function card(p){
     <div class="sku">${esc(p.sku||'')}</div>
     <div class="pack">${esc(p.pack||'')}</div>
     ${bc?`<img class="bc" src="${esc(bc)}" alt="barcode" referrerpolicy="no-referrer">`:''}
+    <textarea class="note" data-sku="${esc(p.sku)}" placeholder="仅自己可见的备注，如加价、活动" rows="2">${esc(notes[p.sku]||'')}</textarea>
   </article>`;
 }
 function render(query){
@@ -133,6 +144,14 @@ function sharePayload(){
   return {url, text: 'Roxy 产品清单\n\n' + lines + '\n\n查看图片：\n' + url, rows};
 }
 
+$list.addEventListener('input', e=>{
+  const ta = e.target.closest('.note');
+  if(!ta) return;
+  const sku = ta.getAttribute('data-sku');
+  notes[sku] = ta.value;
+  if(!ta.value) delete notes[sku];
+  saveNotes();
+});
 $list.addEventListener('change', e=>{
   const box = e.target.closest('.pick');
   if(!box) return;
@@ -192,9 +211,8 @@ const initQ = params.get('q') || '';
 const initSkus = (params.get('skus')||'').split(',').map(s=>s.trim()).filter(Boolean);
 $q.value = initQ;
 if(initSkus.length){
-  initSkus.forEach(s=>selected.add(s));
-  const rows = PRODUCTS.filter(p=>selected.has(p.sku));
-  $meta.textContent = `分享清单 ${rows.length} 个产品`;
+  document.querySelector('header h1').textContent = 'Roxy Trading 产品';
+  const rows = PRODUCTS.filter(p=>initSkus.includes(p.sku));
   $list.innerHTML = rows.map(card).join('');
 }else{
   render(initQ);
