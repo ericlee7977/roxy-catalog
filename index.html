@@ -33,7 +33,7 @@ header h1{margin:0 0 8px;font-size:16px;font-weight:700;}
 .sharebox{max-width:420px;margin:12px auto;background:#fff;border-radius:12px;padding:12px;display:none;}
 .sharebox textarea{width:100%;min-height:120px;border:1px solid #ddd;border-radius:8px;padding:8px;font-size:14px;}
 .note{margin-top:8px;width:100%;border:1px dashed #c5c9a8;border-radius:8px;padding:8px;font-size:13px;resize:vertical;min-height:36px;background:#fafaf3;}
-body.guest header .search, body.guest .meta, body.guest .bar, body.guest .note, body.guest .pick, body.guest .sharebox{display:none !important;}
+body.guest header .search, body.guest .meta, body.guest .bar, body.guest .note, body.guest .pick, body.guest .sharebox, body.guest #syncbox{display:none !important;}
 body.guest .list{padding-bottom:24px;}
 body.guest header h1{margin:0;}
 
@@ -49,11 +49,24 @@ body.guest header h1{margin:0;}
 </header>
 <div class="meta">
   <span id="meta">准备搜索</span>
-  <button type="button" id="selAll">全选本页</button>
+  <span>
+    <button type="button" id="selAll">全选本页</button>
+    <button type="button" id="expNotes">备份备注</button>
+    <button type="button" id="impNotes">恢复备注</button>
+    <button type="button" id="syncBtn">云同步</button>
+    <input id="impFile" type="file" accept="application/json,.json" hidden>
+  </span>
 </div>
 <div class="list" id="list"></div>
 <div class="sharebox" id="sharebox">
   <textarea id="sharetext" readonly></textarea>
+</div>
+<div class="sharebox" id="syncbox">
+  <p style="margin:0 0 8px;font-size:13px;color:#444">把 GitHub Token 和 Gist ID 填在这里，备注会自动存到你的私密 Gist。不要发给客户，也不要提交到公开仓库。</p>
+  <input id="syncToken" type="password" placeholder="GitHub Token（gist 权限）" style="width:100%;margin:0 0 8px;padding:8px;border:1px solid #ddd;border-radius:8px;">
+  <input id="syncGist" type="text" placeholder="Gist ID" style="width:100%;margin:0 0 8px;padding:8px;border:1px solid #ddd;border-radius:8px;">
+  <button type="button" id="syncSave" style="border:0;background:#1f4e3d;color:#fff;border-radius:8px;padding:8px 12px;font-weight:700;">保存并立即同步</button>
+  <div id="syncMsg" style="margin-top:8px;font-size:12px;color:#666"></div>
 </div>
 <div class="bar">
   <span id="cnt">已选 0</span>
@@ -70,7 +83,94 @@ const $f = document.getElementById('f');
 const $cnt = document.getElementById('cnt');
 const selected = new Set();
 const notes = JSON.parse(localStorage.getItem('roxy_notes')||'{}');
-function saveNotes(){ localStorage.setItem('roxy_notes', JSON.stringify(notes)); }
+pullCloud();
+function saveNotes(){
+  localStorage.setItem('roxy_notes', JSON.stringify(notes));
+  queueCloudSave();
+}
+const syncCfg = JSON.parse(localStorage.getItem('roxy_sync')||'{}');
+let cloudTimer = null;
+function queueCloudSave(){
+  if(!syncCfg.token || !syncCfg.gistId) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(pushCloud, 800);
+}
+async function pushCloud(){
+  if(!syncCfg.token || !syncCfg.gistId) return;
+  const msg = document.getElementById('syncMsg');
+  try{
+    const res = await fetch('https://api.github.com/gists/' + syncCfg.gistId, {
+      method: 'PATCH',
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'Bearer ' + syncCfg.token
+      },
+      body: JSON.stringify({
+        files: { 'roxy-notes.json': { content: JSON.stringify(notes, null, 2) } }
+      })
+    });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    if(msg) msg.textContent = '已同步到云端 ' + new Date().toLocaleTimeString();
+  }catch(err){
+    if(msg) msg.textContent = '同步失败：' + err.message;
+  }
+}
+async function pullCloud(){
+  if(!syncCfg.token || !syncCfg.gistId) return;
+  try{
+    const res = await fetch('https://api.github.com/gists/' + syncCfg.gistId, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'Bearer ' + syncCfg.token
+      }
+    });
+    if(!res.ok) return;
+    const data = await res.json();
+    const file = data.files && (data.files['roxy-notes.json'] || Object.values(data.files||{})[0]);
+    if(!file || !file.content) return;
+    const remote = JSON.parse(file.content);
+    Object.assign(notes, remote);
+    localStorage.setItem('roxy_notes', JSON.stringify(notes));
+  }catch(err){}
+}
+document.getElementById('syncBtn').onclick = ()=>{
+  const box = document.getElementById('syncbox');
+  box.style.display = box.style.display === 'block' ? 'none' : 'block';
+  document.getElementById('syncToken').value = syncCfg.token || '';
+  document.getElementById('syncGist').value = syncCfg.gistId || '';
+};
+document.getElementById('syncSave').onclick = async ()=>{
+  syncCfg.token = document.getElementById('syncToken').value.trim();
+  syncCfg.gistId = document.getElementById('syncGist').value.trim();
+  localStorage.setItem('roxy_sync', JSON.stringify(syncCfg));
+  document.getElementById('syncMsg').textContent = '正在同步…';
+  await pushCloud();
+};
+document.getElementById('expNotes').onclick = ()=>{
+  const blob = new Blob([JSON.stringify(notes, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'roxy-notes.json';
+  a.click();
+};
+document.getElementById('impNotes').onclick = ()=> document.getElementById('impFile').click();
+document.getElementById('impFile').onchange = (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const data = JSON.parse(reader.result);
+      if(!data || typeof data !== 'object') throw new Error('格式不对');
+      Object.assign(notes, data);
+      saveNotes();
+      alert('备注已恢复：' + Object.keys(notes).length + ' 条');
+      const q = document.getElementById('q').value.trim();
+      if(!new URLSearchParams(location.search).has('skus')) render(q);
+    }catch(err){ alert('无法读取备注文件'); }
+  };
+  reader.readAsText(file);
+};
 const isGuest = new URLSearchParams(location.search).has('skus');
 if(isGuest) document.body.classList.add('guest');
 
@@ -168,8 +268,8 @@ function sharePayload(){
   const rows = selectedProducts();
   const skus = rows.map(p=>p.sku).join(',');
   const url = location.origin + location.pathname + '?skus=' + encodeURIComponent(skus);
-  const lines = rows.map(p => `${p.name}\nSKU ${p.sku}${p.pack?'  '+p.pack:''}${p.barcode?'  条码 '+p.barcode:''}`).join('\n\n');
-  return {url, text: 'Roxy 产品清单\n\n' + lines + '\n\n查看图片：\n' + url, rows};
+  const lines = rows.map(p => `${p.name}\nSKU ${p.sku}${p.pack?'  '+p.pack:''}`).join('\n\n');
+  return {url, text: 'Roxy 产品清单\n\n' + lines, rows};
 }
 
 $list.addEventListener('input', e=>{
@@ -213,7 +313,7 @@ document.getElementById('share').onclick = async ()=>{
   ta.value = text;
   box.style.display = 'block';
   if(navigator.share){
-    try{ await navigator.share({title:'Roxy 产品', text, url}); return; }catch(e){}
+    try{ await navigator.share({title:'Roxy 产品', text}); return; }catch(e){}
   }
   try{
     await navigator.clipboard.writeText(text);
